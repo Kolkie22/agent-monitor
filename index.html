@@ -224,9 +224,10 @@ document.addEventListener('click', async (e)=>{
 
 /* ---------- SSE ---------- */
 function connectSSE(){
+  if (STATIC) return; // 静态预览模式（GitHub Pages）无后端，不连 SSE
   const es=new EventSource('/events');
   es.onmessage=(ev)=>{ try{ const m=JSON.parse(ev.data); if(m.type==='snapshot'&&!grid.dataset.busy){ renderGrid(); } }catch{} };
-  es.onerror=()=>{ /* EventSource 自动重连 */ };
+  es.onerror=()=>{ if(STATIC) es.close(); /* 断线自动重连 */ };
 }
 
 /* ---------- 启动 ---------- */

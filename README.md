@@ -35,7 +35,10 @@ bash scripts/install-agent-monitor.sh
 本机起着监控服务时，任一隧道工具均可：
 
 ```bash
-# cloudflared quick tunnel（随机域名，重启后变化）
+# localtunnel（走 443，最稳）
+npx -y localtunnel --port 8899
+
+# cloudflared quick tunnel（需放行 UDP/TCP 7844）
 cloudflared tunnel --url http://127.0.0.1:8899
 
 # 或 ngrok
