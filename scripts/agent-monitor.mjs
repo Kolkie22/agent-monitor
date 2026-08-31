@@ -93,11 +93,13 @@ const AGENTS = [
     logs: [], stateFile: null, logStaleMin: null,
   },
   {
+    // WorkBuddy（Electron 桌面应用 + 本地网关）：手动启动无 LaunchAgent，
+    // 以 gateway 端口 65221 为主信号（飞书桥也复用它），Electron 主进程日志
+    // 仅作活动参考（空闲期不写日志属正常，不参与降级判定）。
     id: 'workbuddy', name: 'WorkBuddy', category: 'agent',
-    launchdLabel: null, port: null,
-    logs: [], stateFile: null, logStaleMin: null,
-    probe: 'dir', probeArg: path.join(os.homedir(), 'WorkBuddy'),
-    note: '预留位：尚未配置探针',
+    launchdLabel: null, port: 65221,
+    logs: [path.join(os.homedir(), 'Library/Logs/WorkBuddy/main.log')],
+    stateFile: null, logStaleMin: null,
   },
 ];
 
