@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Monitor — 本机 Agent 状态</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --txt:#e6e9ef; --dim:#8b93a3; --up:#2fd36f; --deg:#f5b23e; --down:#f45b5b; --unk:#6b7280;
+    --acc:#4c9aff;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.55 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; padding:16px; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px; }
+  h1 { font-size:18px; font-weight:700; letter-spacing:.3px; }
+  .chip { background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:3px 10px; font-size:12px; color:var(--dim); }
+  .chip b { color:var(--txt); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:1px; }
+  .dot.up { background:var(--up); } .dot.degraded { background:var(--deg); } .dot.down { background:var(--down); } .dot.unknown { background:var(--unk); }
+  .spacer { flex:1; }
+  #token { background:var(--panel2); border:1px solid var(--line); color:var(--txt); border-radius:6px; padding:5px 10px; width:200px; font-size:12px; }
+  #statusline { font-size:12px; color:var(--dim); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; position:relative; transition:border-color .3s; }
+  .card.up { border-color:rgba(47,211,111,.35); } .card.degraded { border-color:rgba(245,178,62,.4); } .card.down { border-color:rgba(244,91,91,.45); }
+  .card-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .card-head .name { font-weight:700; font-size:15px; }
+  .tag { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 6px; }
+  .status-txt { font-size:12px; font-weight:600; }
+  .meta { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; color:var(--dim); margin-bottom:6px; }
+  .reason { font-size:12px; color:var(--deg); }
+  .extra { font-size:12px; color:var(--unk); }
+  .toggle { margin-left:auto; background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px; padding:3px 8px; cursor:pointer; font-size:12px; }
+  .toggle:hover { color:var(--txt); }
+  .detail { display:none; margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; }
+  .detail.open { display:block; }
+  .subrow { display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap; }
+  .actions button { background:var(--panel2); border:1px solid var(--line); color:var(--dim); border-radius:6px; padding:3px 10px; cursor:pointer; font-size:12px; }
+  .actions button:hover:not(:disabled) { color:var(--txt); border-color:var(--acc); }
+  .actions button.danger:hover:not(:disabled) { color:var(--down); border-color:var(--down); }
+  .actions button:disabled { opacity:.35; cursor:not-allowed; }
+  .log { background:#0a0c10; border:1px solid var(--line); border-radius:6px; padding:8px; font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-all; max-height:260px; overflow-y:auto; color:#b7c0cf; }
+  .statechip { font-size:11.5px; color:#7ee0a3; background:#10231a; border:1px solid #1d4030; border-radius:4px; padding:1px 6px; }
+  canvas { display:block; margin-top:6px; background:#0a0c10; border:1px solid var(--line); border-radius:6px; }
+  .toast { position:fixed; right:18px; bottom:18px; background:var(--panel2); border:1px solid var(--line); border-left:3px solid var(--acc); border-radius:8px; padding:10px 14px; max-width:420px; font-size:12.5px; display:none; z-index:9; box-shadow:0 6px 24px rgba(0,0,0,.4); }
+  .toast.show { display:block; }
+  .toast.err { border-left-color:var(--down); }
+  footer { margin-top:14px; font-size:11.5px; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🖥️ Agent Monitor</h1>
+  <span class="chip">本机 <b id="host">-</b></span>
+  <span class="chip">🟢 <b id="c-up">0</b> &nbsp;🟡 <b id="c-deg">0</b> &nbsp;🔴 <b id="c-down">0</b> &nbsp;⚪ <b id="c-unk">0</b></span>
+  <span class="chip">CPU <b id="load">-</b> · 内存 <b id="mem">-</b> · 磁盘 <b id="disk">-</b></span>
+  <span class="spacer"></span>
+  <input id="token" type="password" placeholder="写操作 Token（重启用）" autocomplete="off" />
+  <span id="statusline"></span>
+</header>
+<div id="staticbanner" style="display:none;background:#241d0f;border:1px solid #6b5a2a;color:#e8c66a;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;">
+  📡 静态预览模式：GitHub Pages 只托管前端，无法采集本机数据。<b>实时状态</b>请通过本机隧道访问（见 README），或在局域网内访问本机 8899 端口。下方为演示数据。
+</div>
+<div class="grid" id="grid"></div>
+<footer>数据来源：launchctl / 端口 / 状态文件 / 日志活性 · SSE 实时推送 · 每 5s 刷新 · 写操作需 Token</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const state = { agents: {}, expanded: new Set() };
+let STATIC = false;
+let token = localStorage.getItem('am_token') || '';
+$('#token').value = token;
+$('#token').addEventListener('input', (e) => { token = e.target.value.trim(); localStorage.setItem('am_token', token); });
+
+/* ---------- 工具 ---------- */
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtUptime(sec){ if(sec==null) return '—'; sec=Math.round(sec); const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60); return d?`${d}d${h}h`:h?`${h}h${m}m`:`${m}m`; }
+function fmtTs(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleTimeString('zh-CN',{hour12:false}); }
+function fmtBytes(b){ if(b==null) return '—'; const g=b/1024/1024/1024; return (g>=1? g.toFixed(1)+'G' : (b/1024/1024).toFixed(0)+'M'); }
+function toast(msg, isErr){ const t=$('#toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='toast', 3200); }
+async function api(url, opts){ const r = await fetch(url, opts); let j=null; try{ j=await r.json(); }catch{} if(!r.ok) throw new Error((j&&j.error)||`HTTP ${r.status}`); return j; }
+function authHeaders(){ return token ? { 'Authorization': `Bearer ${token}` } : {}; }
+
+/* ---------- 渲染 ---------- */
+function statusDot(s){ return `<span class="dot ${s.status}"></span>`; }
+function statusText(s){ return s.status==='up'?'运行中':s.status==='degraded'?'异常/降级':s.status==='down'?'已停止':'未知'; }
+
+function cardHTML(s){
+  const open = state.expanded.has(s.id);
+  const meta = [];
+  if (s.pid) meta.push(`PID ${s.pid}`);
+  if (s.port) meta.push(`端口 ${s.port}${s.portOpen===false?' ✗':''}`);
+  meta.push(`存活 ${fmtUptime(s.uptimeSec)}`);
+  meta.push(`活动 ${fmtTs(s.lastActivityAt)}`);
+  meta.push(`轮询 ${s.pollMs??'-'}ms`);
+  if (s.errorRecent>0) meta.push(`⚠ 尾部错误 ${s.errorRecent}`);
+  return `<div class="card ${s.status}" id="card-${s.id}">
+    <div class="card-head">
+      ${statusDot(s)}
+      <span class="name">${esc(s.name)}</span>
+      <span class="tag">${esc(s.category||'agent')}</span>
+      <span class="status-txt">${statusText(s)}</span>
+      <button class="toggle" data-id="${s.id}" data-open="${open?'1':'0'}">${open?'−':'＋'}</button>
+    </div>
+    <div class="meta">${meta.join('<span>·</span>')}</div>
+    ${s.reason&&s.reason.length?`<div class="reason">原因：${esc(s.reason.join('；'))}</div>`:''}
+    ${s.extraNote?`<div class="extra">${esc(s.extraNote)}</div>`:''}
+    <div class="detail ${open?'open':''}" id="detail-${s.id}"></div>
+  </div>`;
+}
+
+async function renderDetail(id){
+  const box = $(`#detail-${id}`); if(!box) return;
+  let d;
+  try { d = await api(`/api/agents/${id}`); } catch(e){ box.innerHTML=`<div class="extra">加载失败：${esc(e.message)}</div>`; return; }
+  const stateChips = d.state ? Object.entries(d.state).map(([k,v])=>`<span class="statechip">${esc(k)}=${esc(String(v))}</span>`).join(' ') : '';
+  const histCtx = box.querySelector('canvas')?.getContext('2d');
+  box.innerHTML = `
+    <div class="subrow">
+      <span class="statechip">launchd ${esc(d.launchdState??'—')}${d.lastExitCode!=null?' (exit '+d.lastExitCode+')':''}</span>
+      ${stateChips}
+      <span class="statechip">最后错误 ${fmtTs(d.lastErrorAt)}</span>
+    </div>
+    ${d.launchdLabel?'<div class="subrow actions">'+(d.launchdLabel?`<button class="danger" data-act="restart" data-id="${d.id}">重启</button><button data-act="start" data-id="${d.id}">启动</button><button data-act="stop" data-id="${d.id}">停止</button>`:'')+'</div>':''}
+    <canvas width="640" height="40"></canvas>
+    <div class="log">${esc(d.logTail||'(暂无日志)')}</div>`;
+  drawSpark(histCtx || box.querySelector('canvas').getContext('2d'), d.history||[]);
+}
+
+function drawSpark(ctx, pts){
+  const w=ctx.canvas.width, h=ctx.canvas.height;
+  ctx.clearRect(0,0,w,h);
+  if(!pts.length){ ctx.fillStyle='#4a5160'; ctx.fillText('暂无历史', 8, 22); return; }
+  const step=w/Math.max(pts.length-1,1);
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ const x=i*step, y=h-(p.up??0.25)*h; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle='#4c9aff'; ctx.lineWidth=1.5; ctx.stroke();
+}
+
+/* ---------- 概览条 ---------- */
+async function refreshSystem(){
+  try {
+    const s = await api('/api/system');
+    $('#host').textContent = s.hostname;
+    $('#load').textContent = s.loadavg.map(x=>x.toFixed(2)).join('/');
+    $('#mem').textContent = (100-s.mem.free/s.mem.total*100).toFixed(0)+'%';
+    $('#disk').textContent = s.disk? (100-s.disk.free/s.disk.total*100).toFixed(0)+'%':'—';
+  } catch {}
+}
+
+/* ---------- 主体刷新 ---------- */
+async function refreshAgents(){
+  try {
+    const r = await api('/api/agents');
+    const byId = {}; r.agents.forEach(a=>{ byId[a.id]=a; state.agents[a.id]=a; });
+    state.agents = byId;
+    renderGrid();
+    const counts = { up:0, degraded:0, down:0, unknown:0 };
+    r.agents.forEach(a=>{ counts[a.status]=(counts[a.status]||0)+1; });
+    $('#c-up').textContent=counts.up; $('#c-deg').textContent=counts.degraded;
+    $('#c-down').textContent=counts.down; $('#c-unk').textContent=counts.unknown;
+    $('#statusline').textContent = `更新 ${new Date().toLocaleTimeString('zh-CN',{hour12:false})} · ${r.agents.length} agents`;
+  } catch(e) {
+    if(!STATIC){ STATIC=true; enterStaticMode(); }
+    $('#statusline').textContent = '拉取失败：'+e.message;
+  }
+}
+
+function demoAgents(){
+  const now=Date.now(), h=3600*1000;
+  return [
+    { id:'openclaw', name:'OpenClaw', category:'agent', status:'up', pid:2740, port:18789, portOpen:true, uptimeSec:86400*6, lastActivityAt:now-2*60000, lastErrorAt:null, errorRecent:0, pollMs:18 },
+    { id:'hermes', name:'Hermes', category:'agent', status:'up', pid:14391, port:9119, portOpen:true, uptimeSec:86400*2, lastActivityAt:now-60000, lastErrorAt:null, errorRecent:0, pollMs:22, state:{gateway_state:'running',feishu:'connected',session_store:'ok'} },
+    { id:'cc-connect', name:'cc-connect', category:'agent', status:'up', pid:9050, port:null, uptimeSec:86400*3, lastActivityAt:now-4*60000, lastErrorAt:null, errorRecent:0, pollMs:19 },
+    { id:'dsh-lark', name:'DSH · Lark', category:'channel', status:'up', pid:72678, port:null, uptimeSec:3600*5, lastActivityAt:now-3000, lastErrorAt:null, errorRecent:0, pollMs:16 },
+    { id:'dsh-wechat', name:'DSH · 微信桥', category:'channel', status:'degraded', pid:31625, port:50717, portOpen:true, uptimeSec:3600*8, lastActivityAt:now-6*60000, lastErrorAt:now-6*60000, errorRecent:1, pollMs:17, reason:['演示：日志停滞'] },
+    { id:'ollama', name:'Ollama', category:'runtime', status:'down', pid:null, port:11434, portOpen:false, uptimeSec:null, lastActivityAt:null, lastErrorAt:null, errorRecent:0, pollMs:14, reason:['信号全断（launchd/port:11434）'] },
+    { id:'workbuddy', name:'WorkBuddy', category:'agent', status:'unknown', pid:null, port:null, uptimeSec:null, lastActivityAt:null, lastErrorAt:null, errorRecent:0, pollMs:11, extraNote:'预留位：尚未配置探针' },
+  ];
+}
+
+function enterStaticMode(){
+  $('#staticbanner').style.display='block';
+  const list=demoAgents();
+  const byId={}; list.forEach(a=>{byId[a.id]=a;});
+  state.agents=byId; renderGrid();
+  const counts={up:0,degraded:0,down:0,unknown:0};
+  list.forEach(a=>counts[a.status]++);
+  $('#c-up').textContent=counts.up; $('#c-deg').textContent=counts.degraded;
+  $('#c-down').textContent=counts.down; $('#c-unk').textContent=counts.unknown;
+  $('#statusline').textContent='静态预览 · 演示数据（本机模式请访问 http://127.0.0.1:8899）';
+}
+
+function renderGrid(){
+  const grid=$('#grid');
+  const list=Object.values(state.agents);
+  if(grid.dataset.busy) return;            // 避免 SSE 高频打入时重排已展开面板
+  grid.innerHTML=list.map(cardHTML).join('');
+  grid.querySelectorAll('.toggle').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.id;
+    if(state.expanded.has(id)) state.expanded.delete(id); else state.expanded.add(id);
+    if(state.expanded.has(id)) renderDetail(id); else { const d=$(`#detail-${id}`); if(d)d.classList.remove('open'); }
+    b.dataset.open = state.expanded.has(id)?'1':'0'; b.textContent=state.expanded.has(id)?'−':'＋';
+  }));
+  state.expanded.forEach(renderDetail);
+}
+
+document.addEventListener('click', async (e)=>{
+  const btn=e.target.closest('button[data-act]'); if(!btn) return;
+  const id=btn.dataset.id, act=btn.dataset.act;
+  if(!token){ toast('请先在上方输入写操作 Token', true); return; }
+  if(act==='restart' && !confirm(`确认重启 ${id}？（launchctl kickstart -k）`)) return;
+  if(act==='stop' && !confirm(`确认停止 ${id}？`)) return;
+  btn.disabled=true;
+  try {
+    const r=await api(`/api/agents/${id}/${act}`,{ method:'POST', headers:authHeaders() });
+    toast(`[${act}] ${id} 成功`+((r.stderr&&r.stderr.trim())?` — ${r.stderr}`:''));
+    setTimeout(refreshAgents, 2500);
+  } catch(e){ toast(`[${act}] ${id} 失败：${e.message}`, true); }
+  finally { btn.disabled=false; }
+});
+
+/* ---------- SSE ---------- */
+function connectSSE(){
+  const es=new EventSource('/events');
+  es.onmessage=(ev)=>{ try{ const m=JSON.parse(ev.data); if(m.type==='snapshot'&&!grid.dataset.busy){ renderGrid(); } }catch{} };
+  es.onerror=()=>{ /* EventSource 自动重连 */ };
+}
+
+/* ---------- 启动 ---------- */
+refreshAgents(); refreshSystem();
+setInterval(refreshAgents, 5000);
+setInterval(refreshSystem, 15000);
+connectSSE();
+setTimeout(refreshSystem, 1000);
+</script>
+</body>
+</html>

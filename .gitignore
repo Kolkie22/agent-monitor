@@ -1,0 +1,8 @@
+# 密钥与运行态
+agent-monitor.json
+history/
+*.log
+
+# 系统
+.DS_Store
+node_modules/

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.dsh.agent-monitor</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/kolkie/.nvm/versions/node/v22.23.1/bin/node</string>
+		<string>/Users/kolkie/harness/scripts/agent-monitor.mjs</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/kolkie/harness</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/kolkie/harness/node_modules/.bin:/Users/kolkie/.nvm/versions/node/v22.23.1/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+		<key>DSH_HOME</key>
+		<string>/Users/kolkie/harness/.dsh-home</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>/Users/kolkie/harness/.dsh-home/agent-monitor.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/kolkie/harness/.dsh-home/agent-monitor.log</string>
+</dict>
+</plist>
