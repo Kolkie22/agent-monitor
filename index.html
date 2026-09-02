@@ -148,6 +148,8 @@ function cardHTML(s){
   const meta = [];
   if (s.pid) meta.push(`PID ${s.pid}`);
   if (s.port) meta.push(`端口 ${s.port}${s.portOpen===false?' ✗':''}`);
+  if (s.memRssKb) meta.push(`内存 ${fmtBytes(s.memRssKb*1024)}${s.memVszKb?` / V ${fmtBytes(s.memVszKb*1024)}`:''}`);
+  if (s.cpuPct!=null) meta.push(`CPU ${Number(s.cpuPct).toFixed(1)}%`);
   meta.push(`存活 ${fmtUptime(s.uptimeSec)}`);
   meta.push(`活动 ${fmtTs(s.lastActivityAt)}`);
   meta.push(`轮询 ${s.pollMs??'-'}ms`);
@@ -174,6 +176,8 @@ async function renderDetail(id){
     const chips = [];
     if (a.launchdState) chips.push(`launchd ${a.launchdState}`);
     if (a.state) Object.entries(a.state).forEach(([k,v])=>chips.push(`${k}=${v}`));
+    if (a.memRssKb) chips.push(`内存 ${fmtBytes(a.memRssKb*1024)}${a.memVszKb?` / V ${fmtBytes(a.memVszKb*1024)}`:''}`);
+    if (a.cpuPct!=null) chips.push(`CPU ${Number(a.cpuPct).toFixed(1)}%`);
     chips.push(`最后错误 ${fmtTs(a.lastErrorAt)}`);
     box.innerHTML = `<div class="subrow">${chips.map(c=>`<span class="statechip">${esc(String(c))}</span>`).join('')}</div>
       <div class="extra">云端快照不含日志详情/历史曲线；完整实时数据请在本机 8899 或隧道模式（?api=）查看。</div>`;
@@ -182,11 +186,15 @@ async function renderDetail(id){
   let d;
   try { d = await api(`/api/agents/${id}`); } catch(e){ box.innerHTML=`<div class="extra">加载失败：${esc(e.message)}</div>`; return; }
   const stateChips = d.state ? Object.entries(d.state).map(([k,v])=>`<span class="statechip">${esc(k)}=${esc(String(v))}</span>`).join(' ') : '';
+  const memChips = [];
+  if (d.memRssKb) memChips.push(`内存 ${fmtBytes(d.memRssKb*1024)}${d.memVszKb?` / V ${fmtBytes(d.memVszKb*1024)}`:''}`);
+  if (d.cpuPct!=null) memChips.push(`CPU ${Number(d.cpuPct).toFixed(1)}%`);
   const histCtx = box.querySelector('canvas')?.getContext('2d');
   box.innerHTML = `
     <div class="subrow">
       <span class="statechip">launchd ${esc(d.launchdState??'—')}${d.lastExitCode!=null?' (exit '+d.lastExitCode+')':''}</span>
       ${stateChips}
+      ${memChips.map(c=>`<span class="statechip">${c}</span>`).join('')}
       <span class="statechip">最后错误 ${fmtTs(d.lastErrorAt)}</span>
     </div>
     ${d.launchdLabel?'<div class="subrow actions">'+(d.launchdLabel?`<button class="danger" data-act="restart" data-id="${d.id}">重启</button><button data-act="start" data-id="${d.id}">启动</button><button data-act="stop" data-id="${d.id}">停止</button>`:'')+'</div>':''}
