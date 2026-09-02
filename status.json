@@ -1,7 +1,7 @@
 {
  "kind": "agent-monitor-snapshot",
  "generator": "publish-gh-pages.mjs",
- "at": 1788391268153,
+ "at": 1788391304637,
  "hostname": "chenjiedeMac-mini.local",
  "pollMs": 5000,
  "agents": [
@@ -16,8 +16,8 @@
    "launchdState": "running",
    "port": 18789,
    "portOpen": true,
-   "uptimeSec": 76961,
-   "memRssKb": 647200,
+   "uptimeSec": 76997,
+   "memRssKb": 647424,
    "memVszKb": 467796656,
    "cpuPct": 0.1,
    "lastActivityAt": 1788391010275.0151,
@@ -25,8 +25,8 @@
    "errorRecent": 0,
    "logMtime": 1788391010275.0151,
    "state": null,
-   "pollMs": 12,
-   "probedAt": 1788391268135
+   "pollMs": 11,
+   "probedAt": 1788391304618
   },
   {
    "id": "hermes",
@@ -39,7 +39,7 @@
    "launchdState": "running",
    "port": null,
    "portOpen": null,
-   "uptimeSec": 30519,
+   "uptimeSec": 30555,
    "memRssKb": 25568,
    "memVszKb": 435332000,
    "cpuPct": 0,
@@ -54,8 +54,8 @@
     "active_agents": 0,
     "version": "9e0fefb9"
    },
-   "pollMs": 11,
-   "probedAt": 1788391268135
+   "pollMs": 10,
+   "probedAt": 1788391304618
   },
   {
    "id": "cc-connect",
@@ -68,7 +68,7 @@
    "launchdState": "running",
    "port": null,
    "portOpen": null,
-   "uptimeSec": 192171,
+   "uptimeSec": 192207,
    "memRssKb": 52096,
    "memVszKb": 436852672,
    "cpuPct": 0,
@@ -77,8 +77,8 @@
    "errorRecent": 3,
    "logMtime": 1788231201022.176,
    "state": null,
-   "pollMs": 12,
-   "probedAt": 1788391268136
+   "pollMs": 9,
+   "probedAt": 1788391304617
   },
   {
    "id": "dsh-lark",
@@ -91,17 +91,17 @@
    "launchdState": "running",
    "port": null,
    "portOpen": null,
-   "uptimeSec": 68267,
-   "memRssKb": 282720,
-   "memVszKb": 446450320,
-   "cpuPct": 6.4,
+   "uptimeSec": 68303,
+   "memRssKb": 271840,
+   "memVszKb": 446425904,
+   "cpuPct": 0,
    "lastActivityAt": 1788391174241.543,
    "lastErrorAt": null,
    "errorRecent": 0,
    "logMtime": 1788391174241.543,
    "state": null,
-   "pollMs": 11,
-   "probedAt": 1788391268136
+   "pollMs": 10,
+   "probedAt": 1788391304619
   },
   {
    "id": "dsh-wechat",
@@ -114,7 +114,7 @@
    "launchdState": "running",
    "port": null,
    "portOpen": null,
-   "uptimeSec": 192171,
+   "uptimeSec": 192207,
    "memRssKb": 122720,
    "memVszKb": 446368768,
    "cpuPct": 0,
@@ -123,8 +123,8 @@
    "errorRecent": 2,
    "logMtime": 1788356585586.7437,
    "state": null,
-   "pollMs": 9,
-   "probedAt": 1788391268135
+   "pollMs": 10,
+   "probedAt": 1788391304619
   },
   {
    "id": "ollama",
@@ -137,17 +137,17 @@
    "launchdState": "running",
    "port": 11434,
    "portOpen": true,
-   "uptimeSec": 192171,
+   "uptimeSec": 192207,
    "memRssKb": 27808,
    "memVszKb": 436926656,
    "cpuPct": 0,
-   "lastActivityAt": 1788391268136,
+   "lastActivityAt": 1788391304619,
    "lastErrorAt": null,
    "errorRecent": 0,
    "logMtime": null,
    "state": null,
-   "pollMs": 10,
-   "probedAt": 1788391268136
+   "pollMs": 9,
+   "probedAt": 1788391304619
   },
   {
    "id": "workbuddy",
@@ -160,7 +160,7 @@
    "launchdState": "running",
    "port": null,
    "portOpen": null,
-   "uptimeSec": 30290,
+   "uptimeSec": 30326,
    "memRssKb": 111344,
    "memVszKb": 446290528,
    "cpuPct": 0,
@@ -169,51 +169,51 @@
    "errorRecent": 4,
    "logMtime": 1788390610473.9768,
    "state": null,
-   "pollMs": 10,
-   "probedAt": 1788391268137
+   "pollMs": 9,
+   "probedAt": 1788391304619
   }
  ],
  "system": {
-  "at": 1788391268101,
+  "at": 1788391304585,
   "hostname": "chenjiedeMac-mini.local",
   "platform": "darwin 25.6.0 arm64",
-  "uptimeSec": 192275,
+  "uptimeSec": 192311,
   "loadavg": [
-   2.927734375,
-   2.64599609375,
-   2.08251953125
+   2.20068359375,
+   2.49462890625,
+   2.0498046875
   ],
   "cpu": {
    "count": 10,
    "model": "Apple M4",
-   "usage": 0.03818183794202294,
+   "usage": 0.027307357320287697,
    "perCore": [
-    0.13480885311871227,
-    0.12072434607645877,
-    0.06425702811244982,
-    0.02605210420841686,
-    0.018000000000000016,
-    0.005988023952095856,
-    0.005988023952095856,
+    0.10663983903420526,
+    0.09236947791164662,
+    0.044088176352705455,
+    0.015968063872255467,
+    0.004008016032064132,
+    0,
+    0.006000000000000005,
     0.0020000000000000018,
     0.0020000000000000018,
-    0.0020000000000000018
+    0
    ]
   },
   "mem": {
    "total": 25769803776,
-   "used": 13325221888,
-   "free": 12444581888,
-   "rawFree": 883048448,
-   "usage": 0.5170866648356119,
+   "used": 13274202112,
+   "free": 12495601664,
+   "rawFree": 939786240,
+   "usage": 0.5151068369547526,
    "breakdown": {
-    "free": 601604096,
-    "inactive": 11335778304,
-    "speculative": 278511616,
-    "purgeable": 228687872,
-    "active": 10443456512,
-    "wired": 2271674368,
-    "compressed": 271040512
+    "free": 651608064,
+    "inactive": 11325636608,
+    "speculative": 289210368,
+    "purgeable": 229146624,
+    "active": 10404134912,
+    "wired": 2260008960,
+    "compressed": 270630912
    },
    "swap": {
     "total": 3221225472,
@@ -228,15 +228,15 @@
     "mount": "/",
     "total": 494384795648,
     "used": 12637851648,
-    "free": 227884584960,
+    "free": 227881648128,
     "usage": 0.06
    },
    {
     "fs": "/dev/disk3s5",
     "mount": "/System/Volumes/Data",
     "total": 494384795648,
-    "used": 240168779776,
-    "free": 227884584960,
+    "used": 240171712512,
+    "free": 227881648128,
     "usage": 0.52
    }
   ],
@@ -244,8 +244,8 @@
    "fs": "/dev/disk3s5",
    "mount": "/System/Volumes/Data",
    "total": 494384795648,
-   "used": 240168779776,
-   "free": 227884584960,
+   "used": 240171712512,
+   "free": 227881648128,
    "usage": 0.52
   },
   "monitor": {
@@ -254,45 +254,45 @@
   },
   "history": [
    {
-    "t": 1788391238081,
+    "t": 1788391274564,
     "cpu": null,
-    "mem": 0.5148283640543619,
+    "mem": 0.5160757700602213,
     "disk": 0.52
    },
    {
-    "t": 1788391243097,
-    "cpu": 0.18597503253339687,
-    "mem": 0.5158303578694662,
+    "t": 1788391279581,
+    "cpu": 0.029269451227202516,
+    "mem": 0.5140654246012369,
     "disk": 0.52
    },
    {
-    "t": 1788391248098,
-    "cpu": 0.13884072669997985,
-    "mem": 0.5173842112223307,
+    "t": 1788391284584,
+    "cpu": 0.0617605315047766,
+    "mem": 0.5142485300699869,
     "disk": 0.52
    },
    {
-    "t": 1788391253097,
-    "cpu": 0.1741134602902767,
-    "mem": 0.5173333485921224,
+    "t": 1788391289586,
+    "cpu": 0.027137353236230632,
+    "mem": 0.5146764119466146,
     "disk": 0.52
    },
    {
-    "t": 1788391258102,
-    "cpu": 0.18039965014967213,
-    "mem": 0.5165754954020182,
+    "t": 1788391294585,
+    "cpu": 0.037667844811138274,
+    "mem": 0.5148849487304688,
     "disk": 0.52
    },
    {
-    "t": 1788391263103,
-    "cpu": 0.05241182522956559,
-    "mem": 0.5171890258789062,
+    "t": 1788391299586,
+    "cpu": 0.0271327756327567,
+    "mem": 0.5150140126546224,
     "disk": 0.52
    },
    {
-    "t": 1788391268101,
-    "cpu": 0.03818183794202294,
-    "mem": 0.5170866648356119,
+    "t": 1788391304585,
+    "cpu": 0.027307357320287697,
+    "mem": 0.5151068369547526,
     "disk": 0.52
    }
   ]
