@@ -65,10 +65,12 @@ const TAIL_BYTES = 64 * 1024;
 const LOG_STALE_DEFAULT_MIN = 10;
 const ERROR_RE = /\b(level=error|\[error\]|traceback|exception|panic|crash(?:ed|es)?|fatal)\b/i;
 const ERROR_WORD_RE = /\berror\b/i;
-const ERROR_NOISE_RE = /item error/i;
+// 良性噪声豁免：工具回执 “item error”；Lark WS 正常关闭重连（close 帧 1000(OK)）；
+// session 清理（pruning stale）；以及“无错误”类短语
+const ERROR_NOISE_RE = /item error|receive message loop exit, err: sent \d{3,4} \(OK\); then received \d{3,4} \(OK\) bye|pruning stale sessions?\.json entry|no error|without error|error-free/i;
 function isErrorLine(l) {
-  if (ERROR_RE.test(l)) return true;
-  return ERROR_WORD_RE.test(l) && !ERROR_NOISE_RE.test(l); // 排除 “item error” 等良性噪声
+  if (ERROR_RE.test(l) && !ERROR_NOISE_RE.test(l)) return true;
+  return ERROR_WORD_RE.test(l) && !ERROR_NOISE_RE.test(l); // 排除良性噪声
 }
 const SECRET_RE = /\b(sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_.-]{20,}|AKIA[A-Z0-9]{16})\b/g;
 
