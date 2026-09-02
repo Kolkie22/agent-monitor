@@ -47,6 +47,27 @@
   .toast.show { display:block; }
   .toast.err { border-left-color:var(--down); }
   footer { margin-top:14px; font-size:11.5px; color:var(--dim); }
+  .dim { color:var(--dim); }
+  /* ---- 系统资源面板 ---- */
+  .sys { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+  .sys-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:12.5px; color:var(--dim); margin-bottom:10px; }
+  .sys-head b { color:var(--txt); font-size:14px; }
+  .sys-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px 20px; }
+  @media (max-width:900px){ .sys-metrics { grid-template-columns:1fr; } .m canvas { width:120px; } }
+  .m { display:grid; grid-template-columns:44px minmax(0,1fr) 52px 140px; align-items:center; gap:8px; }
+  @media (max-width:900px){ .m { grid-template-columns:44px minmax(0,1fr) 52px auto; } }
+  .m-label { font-size:12px; color:var(--dim); font-weight:700; }
+  .m-track { background:var(--panel2); border:1px solid var(--line); height:10px; border-radius:6px; overflow:hidden; }
+  .m-fill { height:100%; width:0%; border-radius:6px; transition:width .6s ease,background .4s; }
+  .m-val { font-size:12.5px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+  .m canvas { width:140px; height:30px; display:block; }
+  .sys-cores { display:flex; gap:4px; margin-top:12px; align-items:center; }
+  .cores-label { font-size:11px; color:var(--dim); margin-right:6px; font-weight:600; }
+  .core { flex:1; height:22px; background:var(--panel2); border:1px solid var(--line); border-radius:4px; overflow:hidden; position:relative; min-width:8px; }
+  .core i { position:absolute; left:0; top:0; bottom:0; width:0%; transition:width .6s ease,background .4s; }
+  .sys-disks { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .disk-chip { font-size:11.5px; color:var(--dim); background:var(--panel2); border:1px solid var(--line); border-radius:6px; padding:2px 8px; }
+  .disk-chip b { color:var(--txt); }
 </style>
 </head>
 <body>
@@ -60,10 +81,42 @@
   <span id="statusline"></span>
 </header>
 <div id="staticbanner" style="display:none;background:#241d0f;border:1px solid #6b5a2a;color:#e8c66a;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;">
-  📡 静态预览模式：GitHub Pages 只托管前端，无法采集本机数据。<b>实时状态</b>请通过本机隧道访问（见 README），或在局域网内访问本机 8899 端口。下方为演示数据。
+  ☁️ 云端快照模式：数据由本机采集、约每 10 分钟推送到此仓库；本页面每 30s 自动拉取最新快照。最后快照 <b id="snap-at">-</b>　<button id="snap-reload" style="background:transparent;border:1px solid #6b5a2a;color:#e8c66a;border-radius:6px;padding:2px 10px;cursor:pointer;font-size:12px;">立即刷新</button>
+</div>
+<div class="sys" id="sys">
+  <div class="sys-head">
+    <b>🖥️ 系统资源</b>
+    <span>本机 <b id="sys-host">-</b></span>
+    <span>开机 <span id="sys-uptime">-</span></span>
+    <span id="sys-load">负载 -</span>
+    <span id="sys-cpu-info">-</span>
+    <span id="sys-mem-info"></span>
+  </div>
+  <div class="sys-metrics">
+    <div class="m">
+      <div class="m-label">CPU</div>
+      <div class="m-track"><div class="m-fill" id="bar-cpu"></div></div>
+      <div class="m-val" id="val-cpu">—</div>
+      <canvas id="spark-cpu" width="140" height="30"></canvas>
+    </div>
+    <div class="m" id="m-mem">
+      <div class="m-label">内存</div>
+      <div class="m-track"><div class="m-fill" id="bar-mem"></div></div>
+      <div class="m-val" id="val-mem">—</div>
+      <canvas id="spark-mem" width="140" height="30"></canvas>
+    </div>
+    <div class="m">
+      <div class="m-label">磁盘</div>
+      <div class="m-track"><div class="m-fill" id="bar-disk"></div></div>
+      <div class="m-val" id="val-disk">—</div>
+      <canvas id="spark-disk" width="140" height="30"></canvas>
+    </div>
+  </div>
+  <div class="sys-cores" id="sys-cores"><span class="cores-label">核</span><span class="dim">—</span></div>
+  <div class="sys-disks" id="sys-disks"><span class="dim">磁盘明细不可用</span></div>
 </div>
 <div class="grid" id="grid"></div>
-<footer>数据来源：launchctl / 端口 / 状态文件 / 日志活性 · SSE 实时推送 · 每 5s 刷新 · 写操作需 Token</footer>
+<footer>采集：CPU / 内存 / 磁盘 + launchctl / 端口 / 状态文件 / 日志活性 · SSE 实时推送 · 每 5s 刷新 · 写操作需 Token</footer>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -74,13 +127,16 @@ let token = localStorage.getItem('am_token') || '';
 $('#token').value = token;
 $('#token').addEventListener('input', (e) => { token = e.target.value.trim(); localStorage.setItem('am_token', token); });
 
+/* 远程模式：?api=<后端地址>（如经隧道的 https://xxx.loca.lt），缺省同源 */
+const API_BASE = (new URLSearchParams(location.search).get('api') || '').trim().replace(/\/+$/, '');
+
 /* ---------- 工具 ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtUptime(sec){ if(sec==null) return '—'; sec=Math.round(sec); const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60); return d?`${d}d${h}h`:h?`${h}h${m}m`:`${m}m`; }
 function fmtTs(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleTimeString('zh-CN',{hour12:false}); }
 function fmtBytes(b){ if(b==null) return '—'; const g=b/1024/1024/1024; return (g>=1? g.toFixed(1)+'G' : (b/1024/1024).toFixed(0)+'M'); }
 function toast(msg, isErr){ const t=$('#toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); clearTimeout(t._h); t._h=setTimeout(()=>t.className='toast', 3200); }
-async function api(url, opts){ const r = await fetch(url, opts); let j=null; try{ j=await r.json(); }catch{} if(!r.ok) throw new Error((j&&j.error)||`HTTP ${r.status}`); return j; }
+async function api(url, opts){ const r = await fetch(API_BASE + url, opts); let j=null; try{ j=await r.json(); }catch{} if(!r.ok) throw new Error((j&&j.error)||`HTTP ${r.status}`); return j; }
 function authHeaders(){ return token ? { 'Authorization': `Bearer ${token}` } : {}; }
 
 /* ---------- 渲染 ---------- */
@@ -113,6 +169,16 @@ function cardHTML(s){
 
 async function renderDetail(id){
   const box = $(`#detail-${id}`); if(!box) return;
+  if (STATIC) { // 云端快照模式下没有 /api/agents/:id，用快照内字段渲染
+    const a = state.agents[id]; if(!a) return;
+    const chips = [];
+    if (a.launchdState) chips.push(`launchd ${a.launchdState}`);
+    if (a.state) Object.entries(a.state).forEach(([k,v])=>chips.push(`${k}=${v}`));
+    chips.push(`最后错误 ${fmtTs(a.lastErrorAt)}`);
+    box.innerHTML = `<div class="subrow">${chips.map(c=>`<span class="statechip">${esc(String(c))}</span>`).join('')}</div>
+      <div class="extra">云端快照不含日志详情/历史曲线；完整实时数据请在本机 8899 或隧道模式（?api=）查看。</div>`;
+    return;
+  }
   let d;
   try { d = await api(`/api/agents/${id}`); } catch(e){ box.innerHTML=`<div class="extra">加载失败：${esc(e.message)}</div>`; return; }
   const stateChips = d.state ? Object.entries(d.state).map(([k,v])=>`<span class="statechip">${esc(k)}=${esc(String(v))}</span>`).join(' ') : '';
@@ -139,14 +205,91 @@ function drawSpark(ctx, pts){
   ctx.strokeStyle='#4c9aff'; ctx.lineWidth=1.5; ctx.stroke();
 }
 
-/* ---------- 概览条 ---------- */
+/* ---------- 系统资源面板（实时） ---------- */
+const sysArrs = { cpu: [], mem: [], disk: [] };
+const MAX_PTS = 180; // 本地环形缓冲 ~15min @5s
+function usageColor(u){ return u==null?'var(--acc)':(u>=0.85?'var(--down)':u>=0.6?'var(--deg)':'var(--up)'); }
+function pct(u){ return u==null?'—' : (u*100).toFixed(0)+'%'; }
+function pushSys(k,v){ const a=sysArrs[k]; a.push(v); if(a.length>MAX_PTS) a.shift(); }
+
+function drawSparkLine(canvas, arr){
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  const pts = arr.filter(v=>v!=null).slice(-120);
+  if(!pts.length){ ctx.fillStyle='#4a5160'; ctx.font='10px sans-serif'; ctx.fillText('采集启动中…',4,19); return; }
+  ctx.beginPath();
+  const step = w/Math.max(pts.length-1,1);
+  pts.forEach((v,i)=>{ const x=i*step, y=h-2-Math.max(0,Math.min(1,v))*(h-4); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle='#4c9aff'; ctx.lineWidth=1.4; ctx.stroke();
+}
+
+function setBar(barSel, valSel, u){
+  const bar=$(barSel), val=$(valSel);
+  if(u==null){ bar.style.width='0%'; bar.style.background='var(--acc)'; val.textContent='—'; return; }
+  bar.style.width=(u*100).toFixed(1)+'%';
+  bar.style.background=usageColor(u);
+  val.textContent=pct(u);
+}
+
+function renderSystem(s){
+  if(!s) return;
+  $('#sys-host').textContent = s.hostname || '-';
+  $('#sys-uptime').textContent = fmtUptime(s.uptimeSec);
+  $('#sys-load').textContent = '负载 ' + (s.loadavg? s.loadavg.map(x=>x.toFixed(2)).join('/') : '—');
+  $('#sys-cpu-info').textContent = (s.cpu? s.cpu.count : '?') + ' 核' + (s.cpu&&s.cpu.model? ' · '+esc(s.cpu.model) : '');
+  // 内存明细（真实占用口径，附压缩/Swap/内核）
+  const mb = s.mem ? s.mem.breakdown : null;
+  $('#sys-mem-info').textContent = (mb && mb.compressed)
+    ? `压缩 ${fmtBytes(mb.compressed)} · Swap ${s.mem.swap? fmtBytes(s.mem.swap.used)+'/'+fmtBytes(s.mem.swap.total):'—'}`
+    : '';
+  const mt = $('#m-mem');
+  if(mt && mb){
+    const parts = [];
+    if(mb.active!=null) parts.push(`活跃 ${fmtBytes(mb.active)}`);
+    if(mb.wired!=null) parts.push(`内核 ${fmtBytes(mb.wired)}`);
+    if(mb.compressed!=null) parts.push(`压缩 ${fmtBytes(mb.compressed)}`);
+    if(s.mem&&s.mem.free) parts.push(`可回收缓存 ${fmtBytes(s.mem.free)}`);
+    if(s.mem&&s.mem.swap) parts.push(`Swap ${fmtBytes(s.mem.swap.used)}/${fmtBytes(s.mem.swap.total)}`);
+    mt.title = parts.join(' · ');
+  }
+  const cpuU = s.cpu? s.cpu.usage : null, memU = s.mem? s.mem.usage : null, diskU = s.primary? s.primary.usage : null;
+  setBar('#bar-cpu','#val-cpu',cpuU);
+  setBar('#bar-mem','#val-mem',memU);
+  setBar('#bar-disk','#val-disk',diskU);
+  // 每核占比
+  const coresBox = $('#sys-cores');
+  if(s.cpu && Array.isArray(s.cpu.perCore) && s.cpu.perCore.length){
+    coresBox.innerHTML = '<span class="cores-label">核</span>' + s.cpu.perCore.map((v,i)=>
+      `<span class="core" title="核 ${i+1}：${pct(v)}"><i style="width:${(v==null?0:v*100).toFixed(0)}%;background:${usageColor(v)}"></i></span>`).join('');
+  } else coresBox.innerHTML = '<span class="cores-label">核</span><span class="dim">—</span>';
+  // 磁盘明细
+  const disksBox = $('#sys-disks');
+  disksBox.innerHTML = (s.disks && s.disks.length)
+    ? s.disks.map(d=>{ const nm = d.mount==='/System/Volumes/Data' ? '数据卷' : d.mount==='/' ? '根卷' : d.mount;
+        return `<span class="disk-chip">${esc(nm)} <b>${pct(d.usage)}</b> · 余 ${fmtBytes(d.free)}</span>`; }).join('')
+    : '<span class="dim">磁盘明细不可用</span>';
+  // 概览条 chips
+  $('#host').textContent = s.hostname || '-';
+  $('#load').textContent = s.loadavg? s.loadavg.map(x=>x.toFixed(2)).join('/') : '-';
+  $('#mem').textContent = pct(memU);
+  $('#disk').textContent = pct(diskU);
+  // 曲线数据
+  pushSys('cpu', cpuU); pushSys('mem', memU); pushSys('disk', diskU);
+  drawSparkLine($('#spark-cpu'), sysArrs.cpu);
+  drawSparkLine($('#spark-mem'), sysArrs.mem);
+  drawSparkLine($('#spark-disk'), sysArrs.disk);
+}
+
 async function refreshSystem(){
   try {
     const s = await api('/api/system');
-    $('#host').textContent = s.hostname;
-    $('#load').textContent = s.loadavg.map(x=>x.toFixed(2)).join('/');
-    $('#mem').textContent = (100-s.mem.free/s.mem.total*100).toFixed(0)+'%';
-    $('#disk').textContent = s.disk? (100-s.disk.free/s.disk.total*100).toFixed(0)+'%':'—';
+    if(s && Array.isArray(s.history) && s.history.length){ // 先用服务端历史暖出曲线
+      sysArrs.cpu = s.history.map(h=>h.cpu).filter(v=>v!=null);
+      sysArrs.mem = s.history.map(h=>h.mem).filter(v=>v!=null);
+      sysArrs.disk = s.history.map(h=>h.disk).filter(v=>v!=null);
+    }
+    renderSystem(s);
   } catch {}
 }
 
@@ -161,36 +304,58 @@ async function refreshAgents(){
     r.agents.forEach(a=>{ counts[a.status]=(counts[a.status]||0)+1; });
     $('#c-up').textContent=counts.up; $('#c-deg').textContent=counts.degraded;
     $('#c-down').textContent=counts.down; $('#c-unk').textContent=counts.unknown;
-    $('#statusline').textContent = `更新 ${new Date().toLocaleTimeString('zh-CN',{hour12:false})} · ${r.agents.length} agents`;
+    $('#statusline').textContent = (API_BASE ? `远程 ${API_BASE} · ` : '') + `更新 ${new Date().toLocaleTimeString('zh-CN',{hour12:false})} · ${r.agents.length} agents`;
   } catch(e) {
     if(!STATIC){ STATIC=true; enterStaticMode(); }
-    $('#statusline').textContent = '拉取失败：'+e.message;
+    // 静态/快照模式下不再每 5s 刷“拉取失败”，由快照加载器自管提示
   }
 }
 
-function demoAgents(){
-  const now=Date.now(), h=3600*1000;
-  return [
-    { id:'openclaw', name:'OpenClaw', category:'agent', status:'up', pid:2740, port:18789, portOpen:true, uptimeSec:86400*6, lastActivityAt:now-2*60000, lastErrorAt:null, errorRecent:0, pollMs:18 },
-    { id:'hermes', name:'Hermes', category:'agent', status:'up', pid:14391, port:9119, portOpen:true, uptimeSec:86400*2, lastActivityAt:now-60000, lastErrorAt:null, errorRecent:0, pollMs:22, state:{gateway_state:'running',feishu:'connected',session_store:'ok'} },
-    { id:'cc-connect', name:'cc-connect', category:'agent', status:'up', pid:9050, port:null, uptimeSec:86400*3, lastActivityAt:now-4*60000, lastErrorAt:null, errorRecent:0, pollMs:19 },
-    { id:'dsh-lark', name:'DSH · Lark', category:'channel', status:'up', pid:72678, port:null, uptimeSec:3600*5, lastActivityAt:now-3000, lastErrorAt:null, errorRecent:0, pollMs:16 },
-    { id:'dsh-wechat', name:'DSH · 微信桥', category:'channel', status:'degraded', pid:31625, port:50717, portOpen:true, uptimeSec:3600*8, lastActivityAt:now-6*60000, lastErrorAt:now-6*60000, errorRecent:1, pollMs:17, reason:['演示：日志停滞'] },
-    { id:'ollama', name:'Ollama', category:'runtime', status:'down', pid:null, port:11434, portOpen:false, uptimeSec:null, lastActivityAt:null, lastErrorAt:null, errorRecent:0, pollMs:14, reason:['信号全断（launchd/port:11434）'] },
-    { id:'workbuddy', name:'WorkBuddy', category:'agent', status:'unknown', pid:null, port:null, uptimeSec:null, lastActivityAt:null, lastErrorAt:null, errorRecent:0, pollMs:11, extraNote:'预留位：尚未配置探针' },
-  ];
+/* ---------- 云端快照模式（GitHub Pages 无后端：读仓库里最新 status.json） ---------- */
+let lastSnapshotAt = 0;
+let snapTimer = null;
+// 首选 raw 直读（数据更新无需等 Pages 重建），同源 status.json 兜底；?_t= 绕开 CDN 缓存
+function snapshotURLs(){ const t = Date.now(); return [
+  `https://raw.githubusercontent.com/Kolkie22/agent-monitor/main/status.json?_t=${t}`,
+  `status.json?_t=${t}`,
+]; }
+
+async function loadSnapshot(){
+  for (const u of snapshotURLs()){
+    try {
+      const r = await fetch(u);
+      if(!r.ok) continue;
+      const snap = await r.json();
+      if(!snap || !Array.isArray(snap.agents) || !snap.at) continue;
+      applySnapshot(snap);
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
+function applySnapshot(snap){
+  if(snap.at === lastSnapshotAt) return;   // 同一份快照，30s 轮询不重复重绘
+  lastSnapshotAt = snap.at;
+  const byId = {}; snap.agents.forEach(a=>{ byId[a.id]=a; });
+  state.agents = byId;
+  renderGrid();
+  const counts = { up:0, degraded:0, down:0, unknown:0 };
+  snap.agents.forEach(a=>{ counts[a.status]=(counts[a.status]||0)+1; });
+  $('#c-up').textContent=counts.up; $('#c-deg').textContent=counts.degraded;
+  $('#c-down').textContent=counts.down; $('#c-unk').textContent=counts.unknown;
+  if(snap.system) renderSystem(snap.system);
+  const t = new Date(snap.at).toLocaleTimeString('zh-CN',{hour12:false});
+  $('#snap-at').textContent = t;
+  $('#statusline').textContent = `云端快照 ${t} · ${snap.agents.length} agents · 每 30s 自动刷新`;
 }
 
 function enterStaticMode(){
+  STATIC = true;
   $('#staticbanner').style.display='block';
-  const list=demoAgents();
-  const byId={}; list.forEach(a=>{byId[a.id]=a;});
-  state.agents=byId; renderGrid();
-  const counts={up:0,degraded:0,down:0,unknown:0};
-  list.forEach(a=>counts[a.status]++);
-  $('#c-up').textContent=counts.up; $('#c-deg').textContent=counts.degraded;
-  $('#c-down').textContent=counts.down; $('#c-unk').textContent=counts.unknown;
-  $('#statusline').textContent='静态预览 · 演示数据（本机模式请访问 http://127.0.0.1:8899）';
+  $('#snap-reload').addEventListener('click', loadSnapshot);
+  loadSnapshot().then(ok=>{ if(!ok) $('#statusline').textContent = '快照拉取失败：本机尚未推送数据'; });
+  if(!snapTimer) snapTimer = setInterval(loadSnapshot, 30000);
 }
 
 function renderGrid(){
@@ -225,8 +390,11 @@ document.addEventListener('click', async (e)=>{
 /* ---------- SSE ---------- */
 function connectSSE(){
   if (STATIC) return; // 静态预览模式（GitHub Pages）无后端，不连 SSE
-  const es=new EventSource('/events');
-  es.onmessage=(ev)=>{ try{ const m=JSON.parse(ev.data); if(m.type==='snapshot'&&!grid.dataset.busy){ renderGrid(); } }catch{} };
+  const es=new EventSource(API_BASE + '/events');
+  es.onmessage=(ev)=>{ try{ const m=JSON.parse(ev.data);
+      if(m.type==='system') renderSystem(m.sys);
+      else if(m.type==='snapshot'&&!grid.dataset.busy) renderGrid();
+    }catch{} };
   es.onerror=()=>{ if(STATIC) es.close(); /* 断线自动重连 */ };
 }
 
