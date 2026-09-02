@@ -55,8 +55,10 @@ const AGENTS = [
     stateFile: null, logStaleMin: 30,
   },
   {
+    // Hermes：网关不再监听固定 TCP 端口（历史口径 :9119 已废弃），
+    // 以 launchd + gateway_state.json（权威状态，含 feishu 连接态）+ 日志活性判定。
     id: 'hermes', name: 'Hermes', category: 'agent',
-    launchdLabel: 'ai.hermes.gateway', port: 9119,
+    launchdLabel: 'ai.hermes.gateway', port: null,
     logs: [path.join(os.homedir(), '.hermes/logs/gateway.log'),
            path.join(os.homedir(), '.hermes/logs/gateway.error.log')],
     stateFile: path.join(os.homedir(), '.hermes/gateway_state.json'),
@@ -76,16 +78,20 @@ const AGENTS = [
     stateFile: null, logStaleMin: null, // 空闲期长属正常，日志仅作活动参考
   },
   {
+    // DSH Lark 通道：IM 通道空闲期长属正常（与微信桥口径一致），
+    // 以 launchd KeepAlive 存活为主信号，日志仅作消息活动参考。
     id: 'dsh-lark', name: 'DSH · Lark', category: 'channel',
     launchdLabel: 'dev.omdsh.dsh-lark', port: null,
     logs: [path.join(os.homedir(), '.dsh-lark-channel.log')],
-    stateFile: null, logStaleMin: LOG_STALE_DEFAULT_MIN,
+    stateFile: null, logStaleMin: null,
   },
   {
     id: 'dsh-wechat', name: 'DSH · 微信桥', category: 'channel',
-    launchdLabel: 'dev.omdsh.dsh-wechat', port: 50717,
-    logs: [path.join(os.homedir(), '.dsh-wechat-channel.log')],
-    stateFile: null, logStaleMin: 30,
+    // 桥接进程端口为动态分配（每次重启变化，如 49664/49724），不能按端口探活；
+    // 以 launchd KeepAlive 存活为主信号，plugin.log 仅作消息活动参考（空闲期长属正常）。
+    launchdLabel: 'dev.omdsh.dsh-wechat', port: null,
+    logs: [path.join(DSH_HOME, 'wechat-bridge/plugin.log')],
+    stateFile: null, logStaleMin: null,
   },
   {
     id: 'ollama', name: 'Ollama', category: 'runtime',
@@ -93,12 +99,12 @@ const AGENTS = [
     logs: [], stateFile: null, logStaleMin: null,
   },
   {
-    // WorkBuddy（Electron 桌面应用 + 本地网关）：手动启动无 LaunchAgent，
-    // 以 gateway 端口 65221 为主信号（飞书桥也复用它），Electron 主进程日志
-    // 仅作活动参考（空闲期不写日志属正常，不参与降级判定）。
-    id: 'workbuddy', name: 'WorkBuddy', category: 'agent',
-    launchdLabel: null, port: 65221,
-    logs: [path.join(os.homedir(), 'Library/Logs/WorkBuddy/main.log')],
+    // WorkBuddy：Electron 桌面应用/网关 :65221 为手动启动、不常驻（2026-09-02 起
+    // 以常驻的飞书桥 LaunchAgent 为准，KeepAlive 自动拉起）。桥空闲期不写日志属
+    // 正常，日志仅作活动参考，不参与降级判定。
+    id: 'workbuddy', name: 'WorkBuddy · 飞书桥', category: 'channel',
+    launchdLabel: 'com.workbuddy.feishu-bridge', port: null,
+    logs: [path.join(os.homedir(), 'Library/Logs/workbuddy-feishu-bridge.log')],
     stateFile: null, logStaleMin: null,
   },
 ];
@@ -121,6 +127,159 @@ const CONFIG = loadConfig();
 
 function maskSecret(s) {
   return String(s || '').replace(SECRET_RE, '<masked>');
+}
+
+/* ============================================================
+ * 系统资源采集（CPU / 内存 / 磁盘，随轮询实时刷新）
+ * ============================================================ */
+let prevCpuTimes = null;      // os.cpus() 上一轮 ticks，用于算 CPU 占用率
+let systemSnap = null;        // 最新系统指标快照
+const sysHistory = [];        // [{t, cpu, mem, disk}] 环形缓冲
+const MAX_SYS_HISTORY = 720;  // 5s × 720 ≈ 1h
+
+// 系统自留的隐藏小卷 / devfs 不展示，只留用户可见的物理卷
+const DISK_EXCLUDE = new Set([
+  '/dev', '/System/Volumes/VM', '/System/Volumes/Preboot', '/System/Volumes/Update',
+  '/System/Volumes/xarts', '/System/Volumes/iSCPreboot', '/System/Volumes/Hardware',
+  '/System/Volumes/Data/home',
+]);
+
+function cpuUsage() {
+  const cpus = os.cpus();
+  const nowTicks = cpus.map((c) => c.times);
+  if (!prevCpuTimes || nowTicks.length !== prevCpuTimes.length) {
+    prevCpuTimes = nowTicks; // 首轮只有基线，usage 为 null（页面显示 —）
+    return { usage: null, perCore: null };
+  }
+  const perCore = cpus.map((c, i) => {
+    const p = prevCpuTimes[i] || {};
+    let total = 0;
+    for (const k of Object.keys(c.times)) total += c.times[k] - (p[k] || 0);
+    if (total <= 0) return null;
+    const idle = Math.max(0, c.times.idle - (p.idle || 0));
+    return Math.min(1, 1 - idle / total); // 该核区间占用率 0..1
+  });
+  prevCpuTimes = nowTicks;
+  const valid = perCore.filter((v) => v !== null);
+  const usage = valid.length ? valid.reduce((s, v) => s + v, 0) / valid.length : null;
+  return { usage, perCore };
+}
+
+async function collectDisks() {
+  // df -kP（POSIX）：Filesystem 1024-blocks Used Available Capacity Mounted on
+  const r = await exec('df', ['-kP'], 3000);
+  const out = [];
+  if (r.ok) {
+    for (const line of r.stdout.split('\n').slice(1)) {
+      const t = line.trim().split(/\s+/);
+      if (t.length < 6) continue;
+      const [fs, blocks, used, avail, cap] = t;
+      const mount = t.slice(5).join(' '); // 挂载点可能含空格，取尾部拼接
+      if (!fs.startsWith('/dev/disk')) continue; // 只收物理本地盘（排除 devfs/map/合成挂载）
+      if (DISK_EXCLUDE.has(mount)) continue;
+      const scale = 1024; // df 每列单位是 1024 字节块
+      out.push({
+        fs, mount,
+        total: Number(blocks) * scale,
+        used: Number(used) * scale,
+        free: Number(avail) * scale,
+        usage: parseFloat(cap) / 100,
+      });
+    }
+  }
+  if (!out.length) { // df 不可用兜底：主卷 statfs
+    try {
+      const s = fs.statfsSync('/');
+      out.push({
+        fs: 'statfs', mount: '/',
+        total: s.blocks * s.bsize,
+        used: (s.blocks - s.bfree) * s.bsize,
+        free: s.bfree * s.bsize,
+        usage: s.blocks ? 1 - s.bfree / s.blocks : 0,
+      });
+    } catch {}
+  }
+  return out;
+}
+
+async function memStats() {
+  // macOS 口径：os.freemem() 只算 Pages free（把缓存/惰性页都算"已用"，数值吓人）。
+  // 正确口径：可用 = free + inactive + speculative + purgeable（均可随时回收），
+  // 真实已用 = total − 可用；另附压缩内存与 Swap 辅助指标。
+  const total = os.totalmem();
+  const r = await exec('vm_stat', [], 3000);
+  if (r.ok) {
+    const m = {};
+    for (const line of r.stdout.split('\n')) {
+      const hit = line.match(/^(\w[\w ]*?):\s+(\d+)/);
+      if (hit) m[hit[1].toLowerCase().replace(/\s+/g, '')] = parseInt(hit[2], 10);
+    }
+    const psHit = r.stdout.match(/page size of (\d+) bytes/);
+    const psize = psHit ? parseInt(psHit[1], 10) : 16384;
+    const g = (k) => (m[k] != null ? m[k] * psize : 0);
+    const b = {
+      free: g('pagesfree'), inactive: g('pagesinactive'), speculative: g('pagesspeculative'),
+      purgeable: g('pagespurgeable'), active: g('pagesactive'), wired: g('pageswireddown'),
+      compressed: g('pagesoccupiedbycompressor'),
+    };
+    const avail = b.free + b.inactive + b.speculative + b.purgeable;
+    const used = Math.max(0, total - avail);
+    let swap = null;
+    const sw = await exec('sysctl', ['vm.swapusage'], 3000);
+    if (sw.ok) {
+      const mm = sw.stdout.match(/total\s*=\s*([\d.]+)M\s+used\s*=\s*([\d.]+)M\s+free\s*=\s*([\d.]+)M/);
+      if (mm) swap = {
+        total: parseFloat(mm[1]) * 1024 * 1024,
+        used: parseFloat(mm[2]) * 1024 * 1024,
+        free: parseFloat(mm[3]) * 1024 * 1024,
+      };
+    }
+    return {
+      total, used, free: avail, rawFree: os.freemem(),
+      usage: total ? used / total : 0,
+      breakdown: b, swap, source: 'vm_stat',
+    };
+  }
+  // 兜底：vm_stat 不可用退化为 os 口径
+  const fre = os.freemem();
+  return {
+    total, used: total - fre, free: fre, rawFree: fre,
+    usage: total ? 1 - fre / total : 0,
+    breakdown: { free: fre }, swap: null, source: 'os',
+  };
+}
+
+async function collectSystem() {
+  const cpu = cpuUsage();
+  const cpus = os.cpus();
+  const disksArr = await collectDisks();
+  const mem = await memStats();
+  // 主卷：优先包含用户主目录的 Data 卷，否则根卷
+  const primary = disksArr.find((d) => d.mount === '/System/Volumes/Data')
+    || disksArr.find((d) => d.mount === '/') || null;
+  return {
+    at: Date.now(),
+    hostname: os.hostname(),
+    platform: `${os.platform()} ${os.release()} ${os.arch()}`,
+    uptimeSec: Math.round(os.uptime()),
+    loadavg: os.loadavg(),
+    cpu: { count: cpus.length, model: cpus[0] ? cpus[0].model : null, usage: cpu.usage, perCore: cpu.perCore },
+    mem,
+    disks: disksArr,
+    primary,
+    monitor: { token: CONFIG.token.slice(0, 6) + '…', port: PORT },
+  };
+}
+
+async function refreshSystemMetrics() {
+  try {
+    systemSnap = await collectSystem();
+    const s = systemSnap;
+    sysHistory.push({ t: s.at, cpu: s.cpu.usage, mem: s.mem.usage, disk: s.primary ? s.primary.usage : null });
+    if (sysHistory.length > MAX_SYS_HISTORY) sysHistory.splice(0, sysHistory.length - MAX_SYS_HISTORY);
+  } catch (e) {
+    console.error('[monitor] system metrics failed:', e);
+  }
 }
 
 /* ============================================================
@@ -320,6 +479,7 @@ const lastEventAt = new Map();
 let initialized = false;
 
 async function pollAll() {
+  await refreshSystemMetrics(); // CPU/内存/磁盘 每轮实时采集，SSE 每轮推送
   const results = await Promise.allSettled(AGENTS.map(pollAgent));
   if (!initialized) { initialized = true; await backfillHistory(); }
   for (let i = 0; i < results.length; i++) {
@@ -329,6 +489,7 @@ async function pollAll() {
   }
   const anyChange = results.some((r) => r.status === 'fulfilled' && r.value.changed);
   if (anyChange) broadcastSnapshot();
+  broadcastSystem(); // 系统指标不依赖 agent 变更，每轮都推
 }
 
 function backfillHistory() {
@@ -358,6 +519,12 @@ const sseClients = new Set();
 
 function broadcastSnapshot() {
   const json = JSON.stringify({ type: 'snapshot', at: Date.now(), agents: summaryList() });
+  for (const res of sseClients) res.write(`data: ${json}\n\n`);
+}
+
+function broadcastSystem() {
+  if (!systemSnap) return;
+  const json = JSON.stringify({ type: 'system', at: systemSnap.at, sys: systemSnap });
   for (const res of sseClients) res.write(`data: ${json}\n\n`);
 }
 
@@ -436,14 +603,9 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { at: Date.now(), pollMs: POLL_MS, agents: summaryList() });
     }
     if (p === '/api/system' && req.method === 'GET') {
-      const mem = { total: os.totalmem(), free: os.freemem() };
-      let disk = null;
-      try { const s = fs.statfsSync(HISTORY_DIR); disk = { total: s.blocks * s.bsize, free: s.bfree * s.bsize }; } catch {}
-      return sendJson(res, 200, {
-        hostname: os.hostname(), platform: `${os.platform()} ${os.release()} ${os.arch()}`,
-        uptimeSec: Math.round(os.uptime()), loadavg: os.loadavg(), cpus: os.cpus().length,
-        mem, disk, monitor: { token: CONFIG.token.slice(0, 6) + '…', port: PORT },
-      });
+      if (!systemSnap) await refreshSystemMetrics();
+      const hist = sysHistory.slice(-240).map((h) => ({ t: h.t, cpu: h.cpu, mem: h.mem, disk: h.disk }));
+      return sendJson(res, 200, { ...(systemSnap || {}), history: hist });
     }
 
     const am = p.match(/^\/api\/agents\/([\w-]+)(?:\/(log|history|restart|start|stop))?$/);
