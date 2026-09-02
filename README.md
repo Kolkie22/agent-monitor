@@ -25,24 +25,25 @@ bash scripts/install-agent-monitor.sh
 
 ## 远程访问（两种方式）
 
-### 1. GitHub Pages 静态预览（本项目仓库）
+### 1. GitHub Pages 云端快照（本项目仓库，默认推荐）
 
 本仓库已启用 GitHub Pages：https://Kolkie22.github.io/agent-monitor/
-仅托管前端，无后端时自动进入 **静态预览模式**（演示数据 + 提示横幅）。
+页面打开后自动进入 **云端快照模式**，显示的是**真实状态**（不再是演示数据）：
 
-### 2. 实时隧道（看到本机真实数据）
+- 本机常驻的 agent-monitor 进程每 **10 分钟**执行 `scripts/publish-gh-pages.mjs`：
+  抓取最新 `/api/agents` + `/api/system` → 写入仓库根 `status.json` → 有变化才 `git push`（GitHub Pages 自动重建）
+- 页面每 **30s** 自动拉取最新快照：优先 `raw.githubusercontent.com` 直读（数据更新不用等 Pages 重建），同源 `status.json` 兜底
+- 顶部横幅显示「最后快照」时间，可点「立即刷新」
+- 注意：GitHub Pages 每小时构建有软上限（约 10 次），10 分钟节奏安全；本机离线或监控服务停止时页面保留上一次快照
 
-本机起着监控服务时，任一隧道工具均可：
+### 2. 实时隧道（看到本机实时数据）
+
+本机起着监控服务时，带 `?api=` 打开页面可直连本机数据（SSE 实时刷新）：
 
 ```bash
 # localtunnel（走 443，最稳）
 npx -y localtunnel --port 8899
-
-# cloudflared quick tunnel（需放行 UDP/TCP 7844）
-cloudflared tunnel --url http://127.0.0.1:8899
-
-# 或 ngrok
-ngrok http 8899
+# 然后访问：https://kolkie22.github.io/agent-monitor/?api=https://<tunnel>.loca.lt
 ```
 
 > ⚠️ 公网暴露说明：隧道把本机监控页公开到互联网，读取接口无鉴权（日志尾部可能含敏感信息），写操作有 Token 保护。建议设 Cloudflare Access 认证，或仅在需要时临时启动隧道。
@@ -63,11 +64,12 @@ ngrok http 8899
 
 ```
 agent-monitor/
-├── index.html                  # 仪表盘（Pages 根目录直接托管）
+├── index.html                  # 仪表盘（Pages 根目录直接托管，与 web/agent-monitor 同步）
+├── status.json                 # 云端快照（每 10 分钟由本机自动推送更新）
 ├── scripts/
 │   ├── agent-monitor.mjs       # 采集器 + REST/SSE 服务
-│   ├── com.dsh.agent-monitor.plist
-│   └── install-agent-monitor.sh
+│   ├── publish-gh-pages.mjs    # 云端快照发布（内嵌于 monitor 定时执行）
+│   └── com.dsh.agent-monitor.plist
 └── README.md
 ```
 
