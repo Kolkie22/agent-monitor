@@ -17,7 +17,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +30,34 @@ const UID = process.getuid();
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT) || 8899;
+
+/* ============================================================
+ * GitHub Pages 云端快照发布
+ * 复用常驻进程（launchd KeepAlive）：启动 30s 后推一次，之后每 10 分钟推一次。
+ * 脚本把最新 /api/agents + /api/system 写入仓库 status.json 并 git push，
+ * GitHub Pages 自动重建；页面端每 30s 拉取（raw 直读 + 同源兜底）。
+ * ============================================================ */
+const PUBLISH_SCRIPT = process.env.PUBLISH_SCRIPT
+  || path.join(HARNESS, 'agent-monitor', 'scripts', 'publish-gh-pages.mjs');
+const PUBLISH_EVERY_MS = Number(process.env.PUBLISH_EVERY_MS) || 10 * 60 * 1000;
+
+function runPublish() {
+  if (process.env.DISABLE_PUBLISH === '1') return;
+  if (!fs.existsSync(PUBLISH_SCRIPT)) { console.warn('[publish] 脚本不存在: ' + PUBLISH_SCRIPT); return; }
+  const child = spawn(process.execPath, [PUBLISH_SCRIPT], {
+    detached: true,
+    env: { ...process.env, DSH_GIT_FORGE_PROJECT: HARNESS, DSH_HOME, HOME: os.homedir() },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stdout.on('data', (d) => (out += d));
+  child.stderr.on('data', (d) => (out += d));
+  child.on('exit', (code) => {
+    const tail = out.trim().split('\n').filter(Boolean).slice(-2).join(' | ');
+    if (code === 0) console.log(`[publish] 完成: ${tail}`);
+    else console.error(`[publish] 失败 exit=${code}: ${tail}`);
+  });
+}
 const POLL_MS = Number(process.env.POLL_MS) || 5000;
 const MAX_HISTORY = Math.floor((24 * 3600 * 1000) / POLL_MS); // 24h 环形缓冲
 const TAIL_LINES = 200;
@@ -587,6 +615,12 @@ function sse(res) {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${HOST}:${PORT}`);
   const p = u.pathname;
+  // CORS：允许 GitHub Pages 等站点跨域读取（写操作仍需 Bearer token）
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Max-Age', '600');
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   try {
     if (p === '/events' && req.method === 'GET') return sse(res);
     if (p === '/') {
@@ -659,4 +693,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[monitor] 配置: ${CFG_PATH}; 历史: ${HISTORY_DIR}; agents=${AGENTS.length}; poll=${POLL_MS}ms`);
   pollAll().catch((e) => console.error('[monitor] initial poll failed:', e));
   setInterval(() => pollAll().catch((e) => console.error('[monitor] poll failed:', e)), POLL_MS).unref();
+  // 云端快照发布（启动后 30s 首次，之后每 10 分钟一次；GitHub Pages 状态保持最新）
+  setTimeout(runPublish, 30 * 1000).unref();
+  setInterval(runPublish, PUBLISH_EVERY_MS).unref();
 });
