@@ -66,8 +66,8 @@ const LOG_STALE_DEFAULT_MIN = 10;
 const ERROR_RE = /\b(level=error|\[error\]|traceback|exception|panic|crash(?:ed|es)?|fatal)\b/i;
 const ERROR_WORD_RE = /\berror\b/i;
 // 良性噪声豁免：工具回执 “item error”；Lark WS 正常关闭重连（close 帧 1000(OK)）；
-// session 清理（pruning stale）；以及“无错误”类短语
-const ERROR_NOISE_RE = /item error|receive message loop exit, err: sent \d{3,4} \(OK\); then received \d{3,4} \(OK\) bye|pruning stale sessions?\.json entry|no error|without error|error-free/i;
+// session 清理（pruning stale）；“无错误”类短语；以及嵌入消息正文的 error 字样（head='…' 载荷）
+const ERROR_NOISE_RE = /item error|receive message loop exit, err: sent \d{3,4} \(OK\); then received \d{3,4} \(OK\) bye|pruning stale sessions?\.json entry|no error|without error|error-free|head='[^']*\berror\b[^']*'|head="[^"]*\berror\b[^"]*"/i;
 function isErrorLine(l) {
   if (ERROR_RE.test(l) && !ERROR_NOISE_RE.test(l)) return true;
   return ERROR_WORD_RE.test(l) && !ERROR_NOISE_RE.test(l); // 排除良性噪声
@@ -384,12 +384,47 @@ function tailFile(file) {
 
 async function pidUptime(pid) {
   if (!pid) return null;
-  const r = await exec('ps', ['-o', 'etimes=', '-p', String(pid)], 1500);
+  // macOS ps 无 etimes 关键字（实测报 “keyword not found”），用 etime（[[dd-]hh:]mm:ss）解析
+  const r = await exec('ps', ['-o', 'etime=', '-p', String(pid)], 1500);
   if (r.ok) {
+    const m = r.stdout.trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+    if (m) {
+      const d = parseInt(m[1] || '0', 10), h = parseInt(m[2] || '0', 10);
+      const mm = parseInt(m[3], 10), ss = parseInt(m[4], 10);
+      return ((d * 24 + h) * 60 + mm) * 60 + ss;
+    }
     const v = parseInt(r.stdout.trim(), 10);
     if (Number.isFinite(v) && v >= 0) return v;
   }
   return null; // 沙箱/受限环境拿不到 ps 时降级为 null，页面显示 —
+}
+
+/* ============================================================
+ * 每进程内存/CPU 探针：每轮 pollAll 跑一次 ps，按 PID 建表供各 agent 查
+ * (macOS ps -o rss=rssKb vsz=vszKb pcpu=%) 实测输出：<pid> <rssKB> <vszKB> <pcpu>
+ * ============================================================ */
+let procMem = new Map(); // pid -> { rssKb, vszKb, cpuPct }
+
+async function refreshProcMem() {
+  const map = new Map();
+  try {
+    const r = await exec('ps', ['-axo', 'pid=,rss=,vsz=,pcpu='], 3000);
+    if (r.ok) {
+      for (const line of r.stdout.split('\n')) {
+        const f = line.trim().split(/\s+/);
+        if (f.length >= 4) {
+          const pid = parseInt(f[0], 10);
+          if (!Number.isFinite(pid)) continue;
+          map.set(pid, {
+            rssKb: parseInt(f[1], 10) || 0,
+            vszKb: parseInt(f[2], 10) || 0,
+            cpuPct: Number.isFinite(parseFloat(f[3])) ? parseFloat(f[3]) : null,
+          });
+        }
+      }
+    }
+  } catch { /* ps 不可用时保持空表，卡片不显示内存 */ }
+  procMem = map;
 }
 
 /* ============================================================
@@ -469,6 +504,7 @@ async function pollAgent(a) {
     } catch (e) { stateInfo = { parseError: String(e.message || e) }; }
   }
   const uptime = ld && ld.pid ? await pidUptime(ld.pid) : null;
+  const pm = (ld && ld.pid && procMem.get(ld.pid)) || null; // 每进程内存/CPU（macOS ps）
   const dec = decideStatus(a, ld, portOpen, log);
   const ms = Date.now() - t0;
 
@@ -477,6 +513,7 @@ async function pollAgent(a) {
     status: dec.status, reason: dec.reason, extraNote: dec.extraNote,
     pid: ld ? ld.pid : null, launchdState: ld ? ld.state : null,
     port: a.port, portOpen, uptimeSec: uptime,
+    memRssKb: pm ? pm.rssKb : null, memVszKb: pm ? pm.vszKb : null, cpuPct: pm ? pm.cpuPct : null,
     lastActivityAt: dec.lastActivityAt, lastErrorAt: dec.lastErrorAt,
     errorRecent: dec.errLines,
     logTail: log ? maskSecret(log.lines.slice(-60).join('\n')) : '',
@@ -510,6 +547,7 @@ let initialized = false;
 
 async function pollAll() {
   await refreshSystemMetrics(); // CPU/内存/磁盘 每轮实时采集，SSE 每轮推送
+  await refreshProcMem();       // 每轮刷新 pid -> RSS/VSZ/CPU 映射（各 agent 卡片显示内存占用）
   const results = await Promise.allSettled(AGENTS.map(pollAgent));
   if (!initialized) { initialized = true; await backfillHistory(); }
   for (let i = 0; i < results.length; i++) {
